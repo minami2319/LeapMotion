@@ -2048,8 +2048,8 @@ BOOL CALLBACK DialogSTART(HWND strat, UINT message, WPARAM wParam, LPARAM lParam
 				Auto_check[i] = 0;
 			}
 			if (Connection_Check[7] == 1 && Connection_Check[8] == 1 && Connection_Check[9] == 1) {//必要な指を動かす
-				VCS_GetAnalogInput(keyHandle, NodeId + 7, 1, &AD_TMP[7], &errorCode);//拇指伸展
-				VCS_SetPositionProfile(keyHandle, NodeId + 7, 500, 500, 500, &errorCode);
+				VCS_GetAnalogInput(keyHandle, NodeId + 7, 1, &AD_TMP[7], &errorCode);//拇指伸展　VCS_GetAnalogInput;アナログ入力から値を返す
+				VCS_SetPositionProfile(keyHandle, NodeId + 7, 500, 500, 500, &errorCode);//VCS_SetPositionProfile;位置プロファイルパラメータを設定
 				VCS_MoveToPosition(keyHandle, NodeId + 7, -38400, 1, 0, &errorCode);//15cmくらい引く
 
 				VCS_GetAnalogInput(keyHandle, NodeId + 8, 1, &AD_TMP[8], &errorCode);//示指伸展
@@ -3186,7 +3186,7 @@ BOOL CALLBACK DialogSTART(HWND strat, UINT message, WPARAM wParam, LPARAM lParam
 		//初期化処理
 	case WM_INITDIALOG:
 		VCS_SetProtocolStackSettings(keyHandle, 1000000, 500, &errorCode);
-		/*cserial = new CSerial; 						// Cserialクラスを取得
+		cserial = new CSerial; 						// Cserialクラスを取得
 		cserial->MakeBuffer(2, 27); 					// 送信用データを2byte、受信用データを9byte用意する。
 		if (cserial->GetComNum(NULL) == 0) {
 			MessageBox(strat, "接続を確認できません", "error", MB_OK);
@@ -3198,7 +3198,7 @@ BOOL CALLBACK DialogSTART(HWND strat, UINT message, WPARAM wParam, LPARAM lParam
 		cserial->SerialPortBufferClear(); 			// シリアルポートの送受信FIFOメモリをクリアする。
 		SetDlgItemText(strat, IDC_Fle_Edit, "未設定");
 		SetDlgItemText(strat, IDC_Ext_Edit, "未設定");
-		SetDlgItemText(strat, IDC_Rotation_Edit1, "未設定");*/
+		SetDlgItemText(strat, IDC_Rotation_Edit1, "未設定");
 		return 1;
 
 		// ×ボタンをクリックしたときの処理
@@ -9822,6 +9822,8 @@ static LEAP_CONNECTION* connectionHandle; //LEAP_CONNECTION:Leap接続オブジェクト
 */
 
 static LEAP_CONNECTION* connectionHandle; //LEAP_CONNECTION:Leap接続オブジェクトへのハンドル
+int64_t lastFrameID = 0; //The last frame received
+//LEAP_DEVICE_INFO* deviceProps = GetDeviceProperties();
 
 	//Onconnectには関連データはないが、イベントを使用して接続に依存するアプリの部分を初期化できる
 	/** Callback for when the connection opens. */
@@ -9844,34 +9846,36 @@ static void OnFrame(const LEAP_TRACKING_EVENT* frame) { //LEAP_TRACKING_EVENT:あ
 
 	for (uint32_t h = 0; h < frame->nHands; h++) { //nHands:このフレームでトラッキングされた手の数＝pHands配列の要素の数
 		LEAP_HAND* hand = &frame->pHands[h]; //LEAP_HAND:トラッキングされた手を説明する。  pHands;このフレームでトラッキングされる手の配列へのポインタ
-	   // printf("    Hand id %i is a %s hand with position (%f, %f, %f).\n",
 		
 		grab = (hand->grab_angle) * (100 / PI);
 
-		cserial = new CSerial; //Cserialクラスを取得
-		cserial->MakeBuffer(1, 1); //送信用データを1byte、受信用データを1byte用意する。
-		cserial->SetSerialPortName(TEXT("COM3")); //パソコンのシリアルポートを設定する。自分のパソコンのデバイスマネージャで確認すること。
-		cserial->OpenSerialPort(); //シリアルポートをオープンする。
-		cserial->SetSerialPort(19200, 1024, 1024); // ボーレイトの設定。ここでボーレイトを2400にしている。
-		cserial->SerialPortBufferClear(); //シリアルポートの送受信FIFOメモリをクリアする。
-		//マイナスの数値を入力するとプログラム終了
-
-
-		cserial->m_senddata[0] = (unsigned char)grab; //送信用データを代入
-		cserial->SendSerialData(1);
-
 		printf("grab %d %% \n", grab);//曲げ率表示　180°の時100%,0°の時0%
 
-
-		cserial->ReceiveSerialData(1); //パソコンに来ているシリアルデータを1byte受信
-		c = cserial->m_receivedata[0];
-
-		cserial->CloseSerialPort(); //シリアルポートをクローズする。
-		delete cserial; //CSerialクラスを開放
-
 		
-		printf("grab %d ,%.1f\n", c, hand->grab_strength);//グラブハンドポーズの指と手の間の角度（0-180°で表現）180がグー、0がパー
-		if (grab >= 10 && grab <= 20)  VCS_MoveToPosition(keyHandle, NodeId, grab * -256, 1, 1, &errorCode);
+		printf("grab %d ,%.1f\n", grab, hand->grab_strength);//グラブハンドポーズの指と手の間の角度（0-180°で表現）180がグー、0がパー
+		
+
+		if (grab >= 0 && grab <= 100) {
+
+			VCS_MoveToPosition(keyHandle, NodeId + 4, (96 + (0.27 * grab)) * -256, 1, 1, &errorCode);//拇指屈曲
+			VCS_MoveToPosition(keyHandle, NodeId + 5, (96 + (0.49 * grab)) * -256, 1, 1, &errorCode);//指示屈曲
+			VCS_MoveToPosition(keyHandle, NodeId + 6, (140 + (0.40* grab)) * -256, 1, 1, &errorCode);//3指屈曲
+
+			VCS_MoveToPosition(keyHandle, NodeId + 7, (137-(0.12+grab)) * -256, 1, 1, &errorCode);//拇指伸展                                                                                                                                           
+			VCS_MoveToPosition(keyHandle, NodeId + 8, (180-(0.19*grab)) * -256, 1, 1, &errorCode);//指示伸展
+			VCS_MoveToPosition(keyHandle, NodeId + 9, (137-(0.31*grab)) * -256, 1, 1, &errorCode);//3指伸展
+
+			/*if (grab >= 0 && grab <= 10) {
+				VCS_MoveToPosition(keyHandle, NodeId + 4, 80 * -256, 1, 1, &errorCode);//拇指屈曲
+				VCS_MoveToPosition(keyHandle, NodeId + 5, 90 * -256, 1, 1, &errorCode);//指示屈曲
+				VCS_MoveToPosition(keyHandle, NodeId + 6, 125 * -256, 1, 1, &errorCode);//3指屈曲
+
+				VCS_MoveToPosition(keyHandle, NodeId + 7, (135 - grab) * -256, 1, 1, &errorCode);//拇指伸展                                                                                                                                           
+				VCS_MoveToPosition(keyHandle, NodeId + 8, (180 - grab) * -256, 1, 1, &errorCode);//指示伸展
+				VCS_MoveToPosition(keyHandle, NodeId + 9, (132 - grab) * -256, 1, 1, &errorCode);//3指伸展
+			}*/
+
+		}
 	}
 	
 }
@@ -9946,6 +9950,8 @@ void OnHeadPose(const LEAP_HEAD_POSE_EVENT* event) {
 		event->head_orientation.z);
 }
 
+
+
 BOOL CALLBACK DialogLeap(HWND hwndL, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
@@ -9998,7 +10004,7 @@ BOOL CALLBACK DialogLeap(HWND hwndL, UINT message, WPARAM wParam, LPARAM lParam)
 				}
 				return 1;*/
 
-		case IDC_BUTTON4://拇指屈曲
+		case IDC_BUTTON4://グー,パー
 
 			AllocConsole();//コンソール表示
 			freopen("CONOUT$", "w", stdout);//標準出力をコンソールにする
@@ -10027,17 +10033,7 @@ BOOL CALLBACK DialogLeap(HWND hwndL, UINT message, WPARAM wParam, LPARAM lParam)
 			printf("Press Enter to exit program.\n");
 			getchar();
 
-			/*cserial->ReceiveSerialData(1); //パソコンに来ているシリアルデータを1byte受信
-			c = cserial->m_receivedata[0];
-
-			cserial->CloseSerialPort(); //シリアルポートをクローズする。
-			delete cserial; //CSerialクラスを開放*/
-
-			//VCS_MoveToPosition(keyHandle, NodeId, c * -256, 1, 1, &errorCode);
-			//SetDlgItemInt(hwndL, IDC_EDIT7, c, TRUE);
-
-			//if(grab>=10 && grab<=20)  VCS_MoveToPosition(keyHandle, NodeId, grab * -256, 1, 1, &errorCode);
-
+		
 			DestroyConnection();
 			FreeConsole();
 
@@ -10056,47 +10052,373 @@ BOOL CALLBACK DialogLeap(HWND hwndL, UINT message, WPARAM wParam, LPARAM lParam)
 
 			return 1;
 
-		case IDC_BUTTON5://指示屈曲
+		case IDC_BUTTON5://指示屈曲・伸展
 		//a = GetDlgItemInt(hwndL, IDC_EDIT2, NULL, TRUE);
+			//VCS_MoveToPosition(keyHandle, NodeId, c * -256, 1, 1, &errorCode);
+			//SetDlgItemInt(hwndL, IDC_EDIT8, grab, TRUE);
+
+			AllocConsole();//コンソール表示
+			freopen("CONOUT$", "w", stdout);//標準出力をコンソールにする
+			freopen("CONIN$", "r", stdin);//標準入力をコンソールにする
+
+			//int64_t lastFrameID = 0; //The last frame received
+
+			OpenConnection();
+			while (!IsConnected)
+				millisleep(100); //wait a bit to let the connection complete(接続完了まで待つ)
+
+			printf("Connected.");
+			//LEAP_DEVICE_INFO* deviceProps = GetDeviceProperties();
+			//if (deviceProps)
+				//printf("Using device %s.\n", deviceProps->serial);
+
+			for (;;) {
+				LEAP_TRACKING_EVENT* frame = GetFrame();
+				if (frame && (frame->tracking_frame_id > lastFrameID)) {
+					lastFrameID = frame->tracking_frame_id;
+					printf("Frame %lli with %i hands.\n", (long long int)frame->tracking_frame_id, frame->nHands);
+					for (uint32_t h = 0; h < frame->nHands; h++) {
+						LEAP_HAND* hand = &frame->pHands[h];
+						/* printf("    Hand id %i is a %s hand with position (%f, %f, %f).\n",
+									 hand->id,
+									 (hand->type == eLeapHandType_Left ? "left" : "right"),
+									 hand->palm.position.x,
+									 hand->palm.position.y,
+									 hand->palm.position.z);*/
+
+						LEAP_DIGIT* finger = &frame->pHands[h].index;
+						
+						double a = hand->palm.position.z;//手のひらの位置
+						double b = finger->distal.prev_joint.z;//指の先端の位置
+						double c = 0;
+						
+						printf("index distal position is %f\n", finger->distal.prev_joint.z);//人指し指の先端の骨の位置
+						//printf("index intermediate position is %f\n",finger->intermediate.prev_joint.z);//人差し指第１関節の先端位置
+						printf("palm position is %f\n", hand->palm.position.z);
+
+
+						if ((a < 0 && b < 0) && a > b) {//指も手のひらの位置もマイナスかつ手のひらの位置の方がゼロに近い時
+							c = (-b) - (-a);
+							printf("index-palm distance is %f\n", c);
+							
+							if (c >= 0 && c < 1) {
+								printf("100%%\n");
+								
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145-c) * -256, 1, 1, &errorCode);//指示屈曲
+								                                                                                                                                      
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161-c) * -256, 1, 1, &errorCode);//指示伸展
+								
+							}
+							else if (c >= 80) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, 96 * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, 180 * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 1 && c < 80) {
+								int d = c / 0.8;
+								printf("%d%%\n", 100 - d);
+								int k = 100 - d;
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (96 + (0.49 * k)) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (180 - (0.19 * k)) * -256, 1, 1, &errorCode);//指示伸展
+							}
+						}
+
+						else if ((a < 0 && b < 0) && a < b) {//指も手のひらの位置もマイナスかつ指の位置の方がゼロに近い時
+							c = (-a) - (-b);
+							printf("index-palm distance is %f\n", c);
+							printf("100%%\n");
+
+							VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+							VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+						}
+
+						else if (a < 0 && b>0) {//手のひらの位置がマイナスで指の位置がプラスの時
+							c = b - (-a);
+							printf("index-palm distance is %f\n", c);
+							if (a < b) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 0 && c < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 80) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, 96 * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, 180 * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 1 && c < 80) {
+								int d = c / 0.8;
+								printf("%d%%\n", 100 - d);
+								int k = 100 - d;
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (96 + (0.49 * k)) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (180 - (0.19 * k)) * -256, 1, 1, &errorCode);//指示伸展
+							}
+
+						}
+
+						else if (a > 0 && b < 0) {//指位置がマイナスで手のひら位置がプラスの時
+							c = (-b) + a;
+							printf("index-palm distance is %f\n", c);
+							if (a < b) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 0 && c < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 80) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, 96 * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, 180 * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 1 && c < 80) {
+								int d = c / 0.8;
+								printf("%d%%\n", 100 - d);
+								int k = 100 - d;
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (96 + (0.49 * k)) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (180 - (0.19 * k)) * -256, 1, 1, &errorCode);//指示伸展
+							}
+						}
+
+						else {
+							c = -(b - a);
+							printf("index-palm distance is %f\n", c);
+							if (a < b) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 0 && c < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (145 - c) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (161 - c) * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 80) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 5, 96 * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, 180 * -256, 1, 1, &errorCode);//指示伸展
+							}
+							else if (c >= 1 && c < 80) {
+								int d = c / 0.8;
+								printf("%d%%\n", 100 - d);
+								int k = 100 - d;
+								VCS_MoveToPosition(keyHandle, NodeId + 5, (96 + (0.49 * k)) * -256, 1, 1, &errorCode);//指示屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 8, (180 - (0.19 * k)) * -256, 1, 1, &errorCode);//指示伸展
+							}
+						}
+					}
+				}
+			}
+					FreeConsole();
+			return 1;
+
+		case IDC_BUTTON6://拇指屈曲・伸展
+			//a = GetDlgItemInt(hwndL, IDC_EDIT3, NULL, TRUE);
+			//VCS_MoveToPosition(keyHandle, NodeId, a * -256, 1, 1, &errorCode);
+			//SetDlgItemInt(hwndL, IDC_EDIT9, a, TRUE);
+
+			AllocConsole();//コンソール表示
+			freopen("CONOUT$", "w", stdout);//標準出力をコンソールにする
+			freopen("CONIN$", "r", stdin);//標準入力をコンソールにする
+
+			//int64_t lastFrameID = 0; //The last frame received
+
+			OpenConnection();
+			while (!IsConnected)
+				millisleep(100); //wait a bit to let the connection complete(接続完了まで待つ)
+
+			printf("Connected.");
+			//LEAP_DEVICE_INFO* deviceProps = GetDeviceProperties();
+			//if (deviceProps)
+				//printf("Using device %s.\n", deviceProps->serial);
+
+			for (;;) {
+				LEAP_TRACKING_EVENT* frame = GetFrame();
+				if (frame && (frame->tracking_frame_id > lastFrameID)) {
+					lastFrameID = frame->tracking_frame_id;
+					printf("Frame %lli with %i hands.\n", (long long int)frame->tracking_frame_id, frame->nHands);
+					for (uint32_t h = 0; h < frame->nHands; h++) {
+						LEAP_HAND* hand = &frame->pHands[h];
+						/* printf("    Hand id %i is a %s hand with position (%f, %f, %f).\n",
+									 hand->id,
+									 (hand->type == eLeapHandType_Left ? "left" : "right"),
+									 hand->palm.position.x,
+									 hand->palm.position.y,
+									 hand->palm.position.z);*/
+
+						
+						LEAP_DIGIT* finger0 = &frame->pHands[h].thumb;
+						
+						double f = finger0->distal.prev_joint.x;//親指の先端位置
+						double e = hand->palm.position.x;//手のひらの位置
+						double j = 0;
+						
+						printf("thumb distal position is %f\n", finger0->distal.prev_joint.x);//親指の先端の骨の位置
+						
+						printf("palm position is %f\n", hand->palm.position.x);
+
+						if ((e < 0 && f < 0) && e > f) {//指も手のひらの位置もマイナスかつ手のひらの位置の方がゼロに近い時
+							j = (-f) - (-e);
+							printf("thumb-palm distance is %f\n", j);
+							if (j >= 0 && j < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+							
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展                                                                                                                                           
+								
+							}
+							else if (j >= 72) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, 96 * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, 137 * -256, 1, 1, &errorCode);//拇指伸展   
+							}
+							else if (j >= 1 && j < 72) {
+								int i = j / 0.72;
+								printf("%d%%\n", 100 - i);
+								int l = 100 - i;
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (96 + (0.27 * l)) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (137 - (0.12 * l)) * -256, 1, 1, &errorCode);//拇指伸展 
+							}
+						}
+
+						else if ((e < 0 && f < 0) && e < f) {//指も手のひらの位置もマイナスかつ指の位置の方がゼロに近い時
+							j = (-e) - (-f);
+							printf("thumb-palm distance is %f\n", j);
+							printf("100%%\n");
+							VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+							VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+						}
+
+						else if (e < f) {//手のひらの位置が指の位置より小さい時
+							j = e - (-f);
+							printf("thumb-palm distance is %f\n", j);
+							printf("100%%\n");
+							VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+							VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+						}
+						else if (e > 0 && f < 0) {//指位置がマイナスで手のひら位置がプラスの時
+							j = (-f) + e;
+							printf("thumb-palm distance is %f\n", j);
+							if (e < f) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+							}
+							else if (j >= 0 && j < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+							}
+							else if (j >= 72) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, 96 * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, 137 * -256, 1, 1, &errorCode);//拇指伸展 
+							}
+							else if (j >= 1 && j < 72) {
+								int i = j / 0.72;
+								printf("%d%%\n", 100 - i);
+								int l = 100 - i;
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (96 + (0.27 * l)) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (137 - (0.12 * l)) * -256, 1, 1, &errorCode);//拇指伸展 
+							}
+						}
+						else {
+							j = -(f - e);
+							printf("thumb-palm distance is %f\n", j);
+							if (e < f) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+							}
+							else if (j >= 0 && j < 1) {
+								printf("100%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (123 - j) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (125 - j) * -256, 1, 1, &errorCode);//拇指伸展    
+							}
+							else if (j >= 72) {
+								printf("0%%\n");
+								VCS_MoveToPosition(keyHandle, NodeId + 4, 96 * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, 137 * -256, 1, 1, &errorCode);//拇指伸展 
+							}
+							else if (j >= 1 && j < 72) {
+								int i = j / 0.72;
+								printf("%d%%\n", 100 - i);
+								int l = 100 - i;
+								VCS_MoveToPosition(keyHandle, NodeId + 4, (96 + (0.27 * l)) * -256, 1, 1, &errorCode);//拇指屈曲
+
+								VCS_MoveToPosition(keyHandle, NodeId + 7, (137 - (0.12 * l)) * -256, 1, 1, &errorCode);//拇指伸展 
+							}
+						}
+					}
+				}
+			} //ctrl-c to exit
+
+			FreeConsole();
+
+			return 1;
 			
-			VCS_MoveToPosition(keyHandle, NodeId, c * -256, 1, 1, &errorCode);
-			SetDlgItemInt(hwndL, IDC_EDIT8, c, TRUE);
-			return 1;
-
-		case IDC_BUTTON6://３指屈曲
-			a = GetDlgItemInt(hwndL, IDC_EDIT3, NULL, TRUE);
-			VCS_MoveToPosition(keyHandle, NodeId, a * -256, 1, 1, &errorCode);
-			SetDlgItemInt(hwndL, IDC_EDIT9, a, TRUE);
-			return 1;
-
-		case IDC_BUTTON8://拇指伸展
+		/*case IDC_BUTTON8://拇指伸展
 			a = GetDlgItemInt(hwndL, IDC_EDIT4, NULL, TRUE);
 			VCS_MoveToPosition(keyHandle, NodeId, a * -256, 1, 1, &errorCode);
 			SetDlgItemInt(hwndL, IDC_EDIT10, a, TRUE);
 			return 1;
-
-		case IDC_BUTTON11://指示伸展
+			*/
+		/*case IDC_BUTTON11://指示伸展
 			a = GetDlgItemInt(hwndL, IDC_EDIT5, NULL, TRUE);
 			VCS_MoveToPosition(keyHandle, NodeId, a * -256, 1, 1, &errorCode);
 			SetDlgItemInt(hwndL, IDC_EDIT11, a, TRUE);
 			return 1;
-
-		case IDC_BUTTON10://３指伸展
+			*/
+		/*case IDC_BUTTON10://３指伸展
 			a = GetDlgItemInt(hwndL, IDC_EDIT6, NULL, TRUE);
 			VCS_MoveToPosition(keyHandle, NodeId, a * -256, 1, 1, &errorCode);
 			SetDlgItemInt(hwndL, IDC_EDIT12, a, TRUE);
 			return 1;
+			*/
 		}
 
 
-	case WM_TIMER:
+	/*case WM_TIMER:
 		switch (LOWORD(wParam))
 		{
 		case 1:
 			SetDlgItemInt(hwndL, IDC_EDIT7, c, TRUE);
 			return 1;
 		}
-
+		*/
 	case WM_CLOSE:		// ×ボタンをクリックしたときの処理 
 		SetTimer(start, 1, 100, NULL);
 		KillTimer(hwnd, 1);
